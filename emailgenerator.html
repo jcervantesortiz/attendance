@@ -1,0 +1,395 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Email Generator</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+  </style>
+  <!-- React 18 + Babel (so this runs directly in a browser without a build step) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState } = React;
+
+/** Same theme system as calculator page */
+function themeTokens(mode) {
+  const dark = mode === "dark";
+  return {
+    mode,
+    pageBg: dark ? "linear-gradient(135deg, #0b1220, #111827)" : "linear-gradient(135deg, #f8fafc, #eef2ff)",
+    text: dark ? "#e5e7eb" : "#0f172a",
+    subtle: dark ? "rgba(229,231,235,0.75)" : "rgba(15,23,42,0.65)",
+    border: dark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.12)",
+    panelBg: dark ? "rgba(17, 24, 39, 0.55)" : "rgba(255,255,255,0.75)",
+    headerBg: dark ? "rgba(0,0,0,0.25)" : "rgba(15,23,42,0.04)",
+    buttonBg: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.05)",
+    buttonText: dark ? "#e5e7eb" : "#0f172a",
+    buttonBorder: dark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.16)",
+  };
+}
+
+const SCHOOLS = [
+  { label: "Caldwell", code: "ca" },
+  { label: "Nampa", code: "na" },
+  { label: "Idaho Falls", code: "ei" },
+  { label: "North", code: "no" },
+  { label: "Twin Falls", code: "tf" },
+];
+
+// Change this list if you only want certain grades
+const GRADE_OPTIONS = [
+  { label: "Select grade…", value: "" },
+  { label: "6th", value: "6" },
+  { label: "7th", value: "7" },
+  { label: "8th", value: "8" },
+  { label: "9th (Freshman)", value: "9" },
+  { label: "10th (Sophomore)", value: "10" },
+  { label: "11th (Junior)", value: "11" },
+  { label: "12th (Senior)", value: "12" },
+];
+
+/**
+ * Graduation year logic:
+ * - Uses the *current school year end* as the "senior graduation year"
+ * - If we're in Jul–Dec, school year ends next calendar year (e.g., Dec 2025 => 2026)
+ * - If we're in Jan–Jun, school year ends this calendar year (e.g., Mar 2026 => 2026)
+ * - GradYear = schoolYearEnd + (12 - currentGrade)
+ */
+function computeGradYearFromGrade(gradeNum, now = new Date()) {
+  if (!gradeNum) return "";
+  const g = Number(gradeNum);
+  if (!Number.isFinite(g)) return "";
+
+  const y = now.getFullYear();
+  const m = now.getMonth(); // 0=Jan
+  const schoolYearEnd = m >= 6 ? y + 1 : y; // Jul(6)+ => next year end; Jan-Jun => this year end
+  const gradYearFull = schoolYearEnd + (12 - g);
+
+  // Return 2-digit year as a string
+  return String(gradYearFull).slice(-2);
+}
+
+function EmailGenerator() {
+  const navigate = (to) => { if (typeof to === "number") { history.go(to); } else { window.location.href = to; } };const DOMAIN = "@elevate208.org";
+
+  const [theme, setTheme] = useState(() => localStorage.getItem("shift_theme") || "dark");
+  const t = useMemo(() => themeTokens(theme), [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("shift_theme", theme);
+  }, [theme]);
+
+  const [selectedSchool, setSelectedSchool] = useState("");
+  const [schoolCode, setSchoolCode] = useState("");
+
+  const [grade, setGrade] = useState(""); // user selects current grade
+  const [gradYear, setGradYear] = useState(""); // derived YY (2-digit)
+
+  const [firstInitial, setFirstInitial] = useState("");
+  const [lastInitial, setLastInitial] = useState("");
+  const [studentNumber, setStudentNumber] = useState("");
+
+  // If a school is selected, force the code to match (and keep it locked)
+  useEffect(() => {
+    if (!selectedSchool) return;
+    const found = SCHOOLS.find((s) => s.code === selectedSchool);
+    if (found) setSchoolCode(found.code);
+  }, [selectedSchool]);
+
+  const isCodeLocked = Boolean(selectedSchool);
+
+  // When grade changes, compute graduation year automatically (and lock it to dropdown)
+  useEffect(() => {
+    const yy = computeGradYearFromGrade(grade);
+    setGradYear(yy);
+  }, [grade]);
+
+  const email = useMemo(() => {
+    const sc = schoolCode.replace(/[^a-zA-Z]/g, "").slice(0, 2).toLowerCase();
+    const fi = firstInitial.replace(/[^a-zA-Z]/g, "").slice(0, 1).toLowerCase();
+    const li = lastInitial.replace(/[^a-zA-Z]/g, "").slice(0, 1).toLowerCase();
+    const sn = studentNumber.replace(/\D/g, "").slice(0, 4).padStart(4, "0");
+
+    const gy = (gradYear || "").replace(/\D/g, "").slice(-2).padStart(2, "0");
+
+    if (!sc || !fi || !li) return "";
+    return `${sc}${fi}${li}${sn}${gy}${DOMAIN}`;
+  }, [schoolCode, firstInitial, lastInitial, studentNumber, gradYear]);
+
+  const styles = useMemo(
+    () => ({
+      page: {
+        minHeight: "100vh",
+        width: "100vw",
+        margin: 0,
+        padding: 28,
+        boxSizing: "border-box",
+        background: t.pageBg,
+        color: t.text,
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+      },
+      header: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "flex-start",
+        gap: 16,
+        flexWrap: "wrap",
+        marginBottom: 18,
+      },
+      title: { fontSize: 30, fontWeight: 900, letterSpacing: -0.3 },
+      subtle: { marginTop: 8, fontSize: 15, color: t.subtle },
+      actions: { display: "flex", gap: 12, flexWrap: "wrap" },
+
+      button: {
+        border: `1px solid ${t.buttonBorder}`,
+        background: t.buttonBg,
+        color: t.buttonText,
+        padding: "12px 14px",
+        borderRadius: 16,
+        cursor: "pointer",
+        fontWeight: 800,
+        userSelect: "none",
+      },
+
+      card: {
+        width: "100%",
+        borderRadius: 20,
+        overflow: "hidden",
+        border: `1px solid ${t.border}`,
+        background: t.panelBg,
+        backdropFilter: "blur(10px)",
+      },
+      cardHeader: {
+        padding: "16px 16px",
+        background: t.headerBg,
+        borderBottom: `1px solid ${t.border}`,
+      },
+      cardTitle: { fontSize: 16, fontWeight: 900, margin: 0 },
+      cardBody: { padding: 20 },
+
+      grid: {
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        gap: 14,
+      },
+
+      fieldWrap: { display: "grid", gap: 6 },
+      label: { fontSize: 13, color: t.subtle, fontWeight: 800 },
+      input: {
+        padding: "12px 12px",
+        borderRadius: 16,
+        border: `1px solid ${t.buttonBorder}`,
+        background: t.buttonBg,
+        color: t.text,
+        outline: "none",
+        fontSize: 14,
+        fontWeight: 800,
+      },
+      inputDisabled: {
+        opacity: 0.65,
+        cursor: "not-allowed",
+      },
+
+      outputRow: {
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 12,
+        flexWrap: "wrap",
+        padding: 16,
+        borderRadius: 18,
+        border: `1px solid ${t.border}`,
+        background: t.headerBg,
+      },
+      outputLabel: { fontSize: 12, color: t.subtle, fontWeight: 900 },
+      outputValue: { fontSize: 18, fontWeight: 900, wordBreak: "break-all" },
+
+      helper: { marginTop: 12, fontSize: 13, color: t.subtle, fontWeight: 700 },
+      code: {
+        fontFamily:
+          'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
+        fontWeight: 900,
+      },
+    }),
+    [t]
+  );
+
+  const copyToClipboard = async () => {
+    if (!email) return;
+    try {
+      await navigator.clipboard.writeText(email);
+      alert("Copied!");
+    } catch {
+      alert("Copy failed. You can still select and copy manually.");
+    }
+  };
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.header}>
+        <div>
+          <div style={styles.title}>Email Generator</div>
+          <div style={styles.subtle}>
+            Format: <span style={styles.code}>SS + FI + LI + #### + YY + domain</span>
+          </div>
+        </div>
+
+        <div style={styles.actions}>
+          <button style={styles.button} onClick={() => navigate("index.html")}>
+            Back to Home
+          </button>
+          <button style={styles.button} onClick={() => setTheme((m) => (m === "dark" ? "light" : "dark"))}>
+            {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.cardHeader}>
+          <p style={styles.cardTitle}>Student email builder</p>
+        </div>
+
+        <div style={styles.cardBody}>
+          <div style={styles.grid}>
+            <SelectField
+              styles={styles}
+              label="School"
+              value={selectedSchool}
+              onChange={(val) => {
+                setSelectedSchool(val);
+                if (!val) setSchoolCode(""); // if cleared, allow manual entry again
+              }}
+              options={[
+                { label: "Select a school…", value: "" },
+                ...SCHOOLS.map((s) => ({ label: `${s.label} (${s.code})`, value: s.code })),
+              ]}
+            />
+
+            <Field
+              styles={styles}
+              label={isCodeLocked ? "2-letter school code (locked)" : "2-letter school code"}
+              value={schoolCode}
+              onChange={setSchoolCode}
+              placeholder="ca"
+              maxLength={2}
+              disabled={isCodeLocked}
+            />
+
+            <Field
+              styles={styles}
+              label="First initial"
+              value={firstInitial}
+              onChange={setFirstInitial}
+              placeholder="J"
+              maxLength={1}
+            />
+
+            <Field
+              styles={styles}
+              label="Last initial"
+              value={lastInitial}
+              onChange={setLastInitial}
+              placeholder="O"
+              maxLength={1}
+            />
+
+            <Field
+              styles={styles}
+              label="4-digit student number"
+              value={studentNumber}
+              onChange={setStudentNumber}
+              placeholder="0427"
+              maxLength={4}
+              inputMode="numeric"
+            />
+
+            <SelectField
+              styles={styles}
+              label="Current grade"
+              value={grade}
+              onChange={setGrade}
+              options={GRADE_OPTIONS}
+            />
+
+            <Field
+              styles={styles}
+              label="Graduating year (auto-calculated)"
+              value={gradYear ? `20${gradYear}` : ""}
+              onChange={() => {}}
+              placeholder="Auto"
+              maxLength={4}
+              disabled={true}
+            />
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <div style={styles.outputRow}>
+              <div>
+                <div style={styles.outputLabel}>Generated email</div>
+                <div style={styles.outputValue}>
+                  {email || <span style={{ color: t.subtle }}>Enter code + initials to generate</span>}
+                </div>
+              </div>
+
+              <button style={styles.button} onClick={copyToClipboard} disabled={!email}>
+                Copy
+              </button>
+            </div>
+
+            <div style={styles.helper}>
+              Selecting a school locks the 2-letter code. Selecting the student’s current grade auto-calculates the graduating year based on the current school year.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ styles, label, value, onChange, placeholder, maxLength, inputMode, disabled }) {
+  return (
+    <label style={styles.fieldWrap}>
+      <span style={styles.label}>{label}</span>
+      <input
+        style={{ ...styles.input, ...(disabled ? styles.inputDisabled : {}) }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        inputMode={inputMode}
+        disabled={disabled}
+      />
+    </label>
+  );
+}
+
+function SelectField({ styles, label, value, onChange, options }) {
+  return (
+    <label style={styles.fieldWrap}>
+      <span style={styles.label}>{label}</span>
+      <select style={styles.input} value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((opt) => (
+          <option key={opt.value || opt.label} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(EmailGenerator));
+  </script>
+</body>
+</html>

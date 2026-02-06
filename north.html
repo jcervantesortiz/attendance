@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>North</title>
+  <style>
+    html, body { margin: 0; padding: 0; }
+  </style>
+  <!-- React 18 + Babel (so this runs directly in a browser without a build step) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useEffect, useMemo, useRef, useState } = React;
+
+function pad2(n) {
+  return String(n).padStart(2, "0");
+}
+
+function parseTimeToSeconds(timeStr) {
+  // Accepts "HH:MM" or "HH:MM:SS" (seconds ignored if present)
+  if (!timeStr) return null;
+  const parts = timeStr.split(":").map((x) => Number(x));
+  if (parts.length < 2 || parts.some((x) => Number.isNaN(x))) return null;
+  const [h, m, s = 0] = parts;
+  if (h < 0 || h > 23 || m < 0 || m > 59 || s < 0 || s > 59) return null;
+  return h * 3600 + m * 60 + s;
+}
+
+function formatAMPM(seconds) {
+  const s = ((seconds % 86400) + 86400) % 86400;
+  let h24 = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ampm = h24 >= 12 ? "PM" : "AM";
+  let h12 = h24 % 12;
+  if (h12 === 0) h12 = 12;
+  return `${h12}:${pad2(m)} ${ampm}`;
+}
+
+function minutesOnly(totalSeconds) {
+  if (totalSeconds == null) return null;
+  return Math.max(0, Math.floor(totalSeconds / 60));
+}
+
+function timeFallsInBlock(tSec, startSec, endSec) {
+  if (tSec == null || startSec == null || endSec == null) return false;
+  if (endSec > startSec) return tSec >= startSec && tSec < endSec;
+  return tSec >= startSec || tSec < endSec;
+}
+
+function findBlockIdForTime(checkSec, blocks) {
+  if (checkSec == null) return null;
+  for (const b of blocks) {
+    const ss = parseTimeToSeconds(b.start);
+    const se = parseTimeToSeconds(b.end);
+    if (ss == null || se == null) continue;
+    if (timeFallsInBlock(checkSec, ss, se)) return b.id;
+  }
+  return null;
+}
+
+function prettyBlockLabel(b) {
+  const ss = parseTimeToSeconds(b.start);
+  const se = parseTimeToSeconds(b.end);
+  if (ss == null || se == null) return `${b.name} (${b.start}–${b.end})`;
+  return `${b.name} (${formatAMPM(ss)} – ${formatAMPM(se)})`;
+}
+
+/** =========================
+ *  👇 EDIT SCHEDULES HERE
+ *  =========================
+ */
+const SCHEDULES = [
+  {
+    id: "schedA",
+    name: "High School",
+    weekdayBlocks: [
+      { id: "1", name: "HR AM", start: "07:45", end: "08:15" },
+      { id: "2", name: "Shift 1", start: "08:17", end: "09:27" },
+      { id: "3", name: "Shift 2", start: "09:29", end: "10:39" },
+      { id: "4", name: "Shift 3", start: "10:41", end: "12:11" },
+      { id: "5", name: "Shift 4", start: "12:11", end: "13:23" },
+      { id: "6", name: "Shift 5", start: "13:25", end: "14:35" },
+      { id: "7", name: "HR PM", start: "14:37", end: "15:00" },
+    ],
+    fridayBlocks: [
+      { id: "1", name: "HR AM (Fri)", start: "07:45", end: "08:15" },
+      { id: "2", name: "Shift 1 (Fri)", start: "08:17", end: "09:05" },
+      { id: "3", name: "Shift 2 (Fri)", start: "09:07", end: "09:55" },
+      { id: "4", name: "Shift 3 (Fri)", start: "09:57", end: "10:45" },
+      { id: "5", name: "Shift 4 (Fri)", start: "10:47", end: "12:05" },
+      { id: "6", name: "Shift 5 (Fri)", start: "12:07", end: "12:51" },
+      { id: "7", name: "HR PM (Fri)", start: "12:53", end: "13:15" },
+    ],
+  },
+  {
+    id: "schedB",
+    name: "Middle School",
+    weekdayBlocks: [
+      { id: "1", name: "HR AM", start: "07:45", end: "08:15" },
+      { id: "2", name: "Shift 1", start: "08:17", end: "09:27" },
+      { id: "3", name: "Shift 2", start: "09:29", end: "10:39" },
+      { id: "4", name: "Shift 3", start: "10:41", end: "12:11" },
+      { id: "5", name: "Shift 4", start: "12:11", end: "13:23" },
+      { id: "6", name: "Shift 5", start: "13:25", end: "14:35" },
+      { id: "7", name: "HR PM", start: "14:37", end: "15:00" },
+    ],
+    fridayBlocks: [
+      { id: "1", name: "HR AM (Fri)", start: "07:45", end: "08:15" },
+      { id: "2", name: "Shift 1 (Fri)", start: "08:17", end: "09:05" },
+      { id: "3", name: "Shift 2 (Fri)", start: "09:07", end: "09:55" },
+      { id: "4", name: "Shift 3 (Fri)", start: "09:57", end: "10:45" },
+      { id: "5", name: "Shift 4 (Fri)", start: "10:47", end: "12:05" },
+      { id: "6", name: "Shift 5 (Fri)", start: "12:07", end: "12:51" },
+      { id: "7", name: "HR PM (Fri)", start: "12:53", end: "13:15" },
+    ],
+  },
+];
+
+const DAYS = [
+  { id: "mon", label: "Monday" },
+  { id: "tue", label: "Tuesday" },
+  { id: "wed", label: "Wednesday" },
+  { id: "thu", label: "Thursday" },
+  { id: "fri", label: "Friday" },
+];
+
+function jsDayToDayId(jsDay) {
+  if (jsDay === 0 || jsDay === 6) return "mon"; // weekend -> Monday
+  if (jsDay === 1) return "mon";
+  if (jsDay === 2) return "tue";
+  if (jsDay === 3) return "wed";
+  if (jsDay === 4) return "thu";
+  if (jsDay === 5) return "fri";
+  return "mon";
+}
+
+function themeTokens(mode) {
+  const dark = mode === "dark";
+  return {
+    mode,
+    pageBg: dark ? "linear-gradient(135deg, #0b1220, #111827)" : "linear-gradient(135deg, #f8fafc, #eef2ff)",
+    text: dark ? "#e5e7eb" : "#0f172a",
+    subtle: dark ? "rgba(229,231,235,0.75)" : "rgba(15,23,42,0.65)",
+    border: dark ? "rgba(255,255,255,0.08)" : "rgba(15,23,42,0.12)",
+    borderStrong: dark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.18)",
+    panelBg: dark ? "rgba(17, 24, 39, 0.55)" : "rgba(255,255,255,0.75)",
+    headerBg: dark ? "rgba(0,0,0,0.25)" : "rgba(15,23,42,0.04)",
+    inputBg: dark ? "rgba(0,0,0,0.25)" : "rgba(255,255,255,0.9)",
+    readOnlyBg: dark ? "rgba(0,0,0,0.18)" : "rgba(15,23,42,0.04)",
+    buttonBg: dark ? "rgba(255,255,255,0.06)" : "rgba(15,23,42,0.05)",
+    buttonText: dark ? "#e5e7eb" : "#0f172a",
+    buttonBorder: dark ? "rgba(255,255,255,0.14)" : "rgba(15,23,42,0.16)",
+    checkIconFilter: dark ? "invert(1)" : "invert(0)",
+    errorBg: dark ? "rgba(239, 68, 68, 0.14)" : "rgba(239, 68, 68, 0.10)",
+    errorBorder: dark ? "rgba(239, 68, 68, 0.35)" : "rgba(239, 68, 68, 0.30)",
+    errorText: dark ? "rgba(254, 202, 202, 0.95)" : "rgba(127, 29, 29, 0.95)",
+  };
+}
+
+// Validation window (matches error text)
+const MIN_CHECK_SEC = 7 * 3600 + 45 * 60; // 07:45
+const MAX_CHECK_SEC = 15 * 3600; // 15:00
+
+function North() {
+  const [theme, setTheme] = useState(() => localStorage.getItem("shift_theme") || "dark");
+  const t = useMemo(() => themeTokens(theme), [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("shift_theme", theme);
+  }, [theme]);
+
+  const [checkType, setCheckType] = useState("in");
+
+  const [scheduleId, setScheduleId] = useState(SCHEDULES[0]?.id ?? "schedA");
+  const schedule = useMemo(() => SCHEDULES.find((s) => s.id === scheduleId) ?? SCHEDULES[0], [scheduleId]);
+
+  const [dayId, setDayId] = useState("mon");
+  const blocks = useMemo(() => {
+    if (!schedule) return [];
+    return dayId === "fri" ? schedule.fridayBlocks : schedule.weekdayBlocks;
+  }, [dayId, schedule]);
+
+  const [blockId, setBlockId] = useState(blocks[0]?.id ?? "1");
+  const [check, setCheck] = useState("");
+  const checkInputRef = useRef(null);
+
+  // Internet day-of-week on mount (Sat/Sun -> Monday)
+  useEffect(() => {
+    let cancelled = false;
+
+    async function setDayFromInternet() {
+      try {
+        // worldtimeapi timezone for your region
+        const res = await fetch("https://worldtimeapi.org/api/timezone/America/Los_Angeles", { cache: "no-store" });
+        if (!res.ok) throw new Error("worldtimeapi non-OK");
+        const data = await res.json();
+        const dow = Number(data.day_of_week); // 1=Mon ... 7=Sun
+        if (Number.isNaN(dow)) throw new Error("bad day_of_week");
+        const jsDay = dow === 7 ? 0 : dow; // Sun->0, else same (Mon=1..Sat=6)
+        const nextDayId = jsDayToDayId(jsDay);
+        if (!cancelled) setDayId(nextDayId);
+      } catch {
+        const jsDay = new Date().getDay();
+        const nextDayId = jsDayToDayId(jsDay);
+        if (!cancelled) setDayId(nextDayId);
+      }
+    }
+
+    setDayFromInternet();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Snap block if current one doesn't exist in new blocks
+  useEffect(() => {
+    if (blocks.length === 0) return;
+    if (!blocks.some((b) => b.id === blockId)) setBlockId(blocks[0]?.id ?? "1");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dayId, scheduleId, blocks]);
+
+  const selectedBlock = useMemo(() => blocks.find((b) => b.id === blockId) ?? blocks[0], [blocks, blockId]);
+
+  const ss = useMemo(() => parseTimeToSeconds(selectedBlock?.start), [selectedBlock]);
+  const se = useMemo(() => parseTimeToSeconds(selectedBlock?.end), [selectedBlock]);
+  const cc = useMemo(() => parseTimeToSeconds(check), [check]);
+
+  const checkError = useMemo(() => {
+    if (cc == null) return "";
+    if (cc < MIN_CHECK_SEC) return "Invalid time: cannot be before 7:45 AM.";
+    if (cc > MAX_CHECK_SEC) return "Invalid time: cannot be after 3:00 PM.";
+    return "";
+  }, [cc]);
+
+  // IN: end - check, OUT: check - start (clamped). Output minutes only.
+  const durationMinutes = useMemo(() => {
+    if (cc == null || ss == null || se == null || checkError) return null;
+
+    let start = ss;
+    let end = se;
+    if (end <= start) end += 86400;
+
+    let checkSec = cc;
+    if (checkSec < start) checkSec += 86400;
+
+    const clamped = Math.min(Math.max(checkSec, start), end);
+    const seconds = checkType === "in" ? Math.max(0, end - clamped) : Math.max(0, clamped - start);
+    return minutesOnly(seconds);
+  }, [cc, ss, se, checkError, checkType]);
+
+  const handleCheckChange = (value) => {
+    setCheck(value);
+
+    const checkSec = parseTimeToSeconds(value);
+    if (checkSec == null) return;
+
+    if (checkSec < MIN_CHECK_SEC || checkSec > MAX_CHECK_SEC) return;
+
+    const autoId = findBlockIdForTime(checkSec, blocks);
+    if (autoId && autoId !== blockId) setBlockId(autoId);
+  };
+
+  const focusCheckInput = () => {
+    const el = checkInputRef.current;
+    if (!el) return;
+    el.focus();
+    if (typeof el.showPicker === "function") {
+      try {
+        el.showPicker();
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  const styles = useMemo(
+    () => ({
+      page: {
+        minHeight: "100vh",
+        width: "100vw",
+        margin: 0,
+        padding: 28,
+        boxSizing: "border-box",
+        background: t.pageBg,
+        color: t.text,
+        fontFamily:
+          'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji"',
+      },
+      topBar: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+      backLink: {
+        textDecoration: "none",
+        fontWeight: 900,
+        color: t.buttonText,
+        border: `1px solid ${t.buttonBorder}`,
+        background: t.buttonBg,
+        padding: "10px 12px",
+        borderRadius: 14,
+      },
+
+      header: { marginBottom: 18 },
+      titleRow: { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" },
+      title: { fontSize: 30, fontWeight: 900, letterSpacing: -0.3 },
+      subtle: { marginTop: 8, fontSize: 15, color: t.subtle, maxWidth: 980 },
+
+      controlsWrap: {
+        marginTop: 14,
+        display: "grid",
+        gap: 12,
+        gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+        alignItems: "end",
+      },
+
+      selectWrap: { display: "grid", gap: 6 },
+      selectLabel: { fontSize: 13, color: t.subtle, fontWeight: 700 },
+      select: {
+        border: `1px solid ${t.buttonBorder}`,
+        background: t.buttonBg,
+        color: t.buttonText,
+        padding: "12px 14px",
+        borderRadius: 16,
+        cursor: "pointer",
+        fontWeight: 800,
+        outline: "none",
+        width: "100%",
+      },
+
+      button: {
+        border: `1px solid ${t.buttonBorder}`,
+        background: t.buttonBg,
+        color: t.buttonText,
+        padding: "12px 14px",
+        borderRadius: 16,
+        cursor: "pointer",
+        fontWeight: 800,
+        userSelect: "none",
+        width: "100%",
+      },
+
+      chip: {
+        border: `1px solid ${t.border}`,
+        background: t.readOnlyBg,
+        padding: "6px 10px",
+        borderRadius: 999,
+        fontSize: 12,
+        fontWeight: 800,
+        color: t.subtle,
+      },
+
+      tableWrap: {
+        width: "100%",
+        borderRadius: 20,
+        overflow: "hidden",
+        border: `1px solid ${t.border}`,
+        background: t.panelBg,
+        backdropFilter: "blur(10px)",
+      },
+      table: { width: "100%", borderCollapse: "separate", borderSpacing: 0 },
+
+      th: {
+        textAlign: "left",
+        padding: "16px 16px",
+        fontSize: 13,
+        color: t.subtle,
+        background: t.headerBg,
+        borderBottom: `1px solid ${t.border}`,
+        position: "sticky",
+        top: 0,
+        zIndex: 1,
+        whiteSpace: "nowrap",
+      },
+
+      tdTall: { padding: 20, borderBottom: `1px solid ${t.border}`, verticalAlign: "top" },
+      cellStackTall: { display: "grid", gap: 12 },
+
+      inputClickWrap: { width: "100%", borderRadius: 14, cursor: "pointer", display: "block" },
+
+      readonlyTime: {
+        width: "100%",
+        boxSizing: "border-box",
+        padding: "14px 14px",
+        borderRadius: 14,
+        border: `1px solid ${t.border}`,
+        background: t.readOnlyBg,
+        color: t.text,
+        fontSize: 16,
+        fontWeight: 900,
+        fontVariantNumeric: "tabular-nums",
+      },
+
+      hintTall: { fontSize: 13, color: t.subtle },
+
+      resultCellTall: {
+        fontSize: 18,
+        fontWeight: 900,
+        fontVariantNumeric: "tabular-nums",
+        padding: "14px 14px",
+        borderRadius: 14,
+        background: t.inputBg,
+        border: `1px solid ${t.border}`,
+        minHeight: 54,
+        display: "flex",
+        alignItems: "center",
+      },
+
+      errorBox: {
+        marginTop: 10,
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: `1px solid ${t.errorBorder}`,
+        background: t.errorBg,
+        color: t.errorText,
+        fontSize: 13,
+        fontWeight: 800,
+      },
+
+      footer: { marginTop: 12, fontSize: 13, color: t.subtle },
+    }),
+    [t]
+  );
+
+  return (
+    <div style={styles.page} className={theme === "light" ? "lightMode" : ""}>
+      <style>{`
+        .checkTimeInput { cursor: pointer; }
+        .checkTimeInput::-webkit-calendar-picker-indicator {
+          filter: ${t.checkIconFilter};
+          opacity: 0.9;
+          cursor: pointer;
+        }
+        .lightMode .checkTimeInput::-webkit-calendar-picker-indicator {
+          filter: invert(0);
+          opacity: 0.85;
+        }
+        .checkTimeInput {
+          border: none !important;
+          background: transparent !important;
+          padding: 14px 14px !important;
+          width: 100% !important;
+          box-sizing: border-box !important;
+          outline: none !important;
+          color: inherit !important;
+          font: inherit !important;
+          font-variant-numeric: tabular-nums !important;
+        }
+      `}</style>
+
+      <div style={styles.topBar}>
+        <a href="index.html" style={styles.backLink}>
+          ← Back
+        </a>
+      </div>
+
+      <div style={styles.header}>
+        <div style={styles.titleRow}>
+          <div style={styles.title}>Shift Minutes Calculator</div>
+          <span style={styles.chip}>{theme === "dark" ? "Dark" : "Light"} mode</span>
+        </div>
+
+        <div style={styles.subtle}>Select your schedule, and whether you are checking In or Out. When you enter the time the block will be auto selected.</div>
+
+        {/* ✅ Controls always under title */}
+        <div style={styles.controlsWrap}>
+          <div style={styles.selectWrap}>
+            <label style={styles.selectLabel}>Schedule</label>
+            <select value={scheduleId} onChange={(e) => setScheduleId(e.target.value)} style={styles.select}>
+              {SCHEDULES.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.selectWrap}>
+            <label style={styles.selectLabel}>Day</label>
+            <select value={dayId} onChange={(e) => setDayId(e.target.value)} style={styles.select}>
+              {DAYS.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.selectWrap}>
+            <label style={styles.selectLabel}>Block</label>
+            <select value={blockId} onChange={(e) => setBlockId(e.target.value)} style={styles.select}>
+              {blocks.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {prettyBlockLabel(b)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={styles.selectWrap}>
+            <label style={styles.selectLabel}>Check Type</label>
+            <select value={checkType} onChange={(e) => setCheckType(e.target.value)} style={styles.select}>
+              <option value="in">Check In</option>
+              <option value="out">Check Out</option>
+            </select>
+          </div>
+
+          <button style={styles.button} onClick={() => setTheme((m) => (m === "dark" ? "light" : "dark"))}>
+            {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </button>
+
+          <button style={styles.button} onClick={() => setCheck("")}>
+            Clear Time
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.tableWrap}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Shift Start Time</th>
+              <th style={styles.th}>{checkType === "in" ? "Check In Time (enter this)" : "Check Out Time (enter this)"}</th>
+              <th style={styles.th}>Shift End Time</th>
+              <th style={styles.th}>{checkType === "in" ? "Time Remaining (minutes)" : "Time Worked (minutes)"}</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <tr>
+              <td style={styles.tdTall}>
+                <div style={styles.cellStackTall}>
+                  <div style={styles.readonlyTime}>{ss == null ? "—" : formatAMPM(ss)}</div>
+                  <div style={styles.hintTall}>{selectedBlock?.name ?? "Block"}</div>
+                </div>
+              </td>
+
+              <td style={styles.tdTall}>
+                <div style={styles.cellStackTall}>
+                  <div
+                    style={{
+                      ...styles.inputClickWrap,
+                      border: `1px solid ${checkError ? t.errorBorder : t.borderStrong}`,
+                      background: t.inputBg,
+                      borderRadius: 14,
+                    }}
+                    onClick={focusCheckInput}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        focusCheckInput();
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
+                    aria-label="Check time"
+                    title="Click anywhere in this box to set a time"
+                  >
+                    <input
+                      ref={checkInputRef}
+                      className="checkTimeInput"
+                      type="time"
+                      step="60"
+                      value={check}
+                      onChange={(e) => handleCheckChange(e.target.value)}
+                      style={{ color: t.text }}
+                    />
+                  </div>
+
+                  <div style={styles.hintTall}>
+                    {cc == null ? "Enter a time…" : formatAMPM(cc)}{" "}
+                    <span style={{ opacity: 0.8 }}>
+                      (Allowed: {formatAMPM(MIN_CHECK_SEC)} – {formatAMPM(MAX_CHECK_SEC)})
+                    </span>
+                  </div>
+
+                  {checkError ? <div style={styles.errorBox}>{checkError}</div> : null}
+                </div>
+              </td>
+
+              <td style={styles.tdTall}>
+                <div style={styles.cellStackTall}>
+                  <div style={styles.readonlyTime}>{se == null ? "—" : formatAMPM(se)}</div>
+                  <div style={styles.hintTall}>{selectedBlock?.name ?? "Block"}</div>
+                </div>
+              </td>
+
+              <td style={styles.tdTall}>
+                <div style={styles.resultCellTall}>{durationMinutes != null ? String(durationMinutes) : "—"}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* <div style={styles.footer}>
+        Edit schedules in <code>SCHEDULES</code>. Theme is saved in your browser.
+      </div> */}
+    </div>
+  );
+}
+
+
+    // Mount
+    const root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(North));
+  </script>
+</body>
+</html>
